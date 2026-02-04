@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
+import SectionCard from "../components/SectionCard";
 import { api } from "../services/api";
 
-// Sub-componente para efeito de carregamento (Skeleton)
-const Skeleton = ({ width = "100%", height = "20px", borderRadius = "4px" }) => (
-  <div className="skeleton-loader" style={{ width, height, borderRadius }} />
-);
+function formatMoneyBRL(value) {
+  if (typeof value !== "number") return "-";
+  return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
 
 export default function Dashboard() {
   const [apiStatus, setApiStatus] = useState({ loading: true, ok: false });
@@ -12,19 +13,20 @@ export default function Dashboard() {
   const [ops, setOps] = useState([]);
   const [pedidos, setPedidos] = useState([]);
   const [error, setError] = useState("");
-  const [lastUpdate, setLastUpdate] = useState(null);
 
   useEffect(() => {
     let alive = true;
+
     async function load() {
       try {
         setError("");
-        setApiStatus({ loading: true, ok: false });
 
-        // 1) Health Check inicial [cite: 355]
-        const health = await api.health();
-        
-        // 2) Busca de dados em paralelo [cite: 359, 360, 361, 362]
+        // 1) health/ping
+        await api.health();
+        if (!alive) return;
+        setApiStatus({ loading: false, ok: true });
+
+        // 2) dados principais
         const [s, o, p] = await Promise.all([
           api.summary(),
           api.ops({ page: 1, page_size: 5 }),
@@ -33,25 +35,21 @@ export default function Dashboard() {
 
         if (!alive) return;
 
-        // Sucesso: Atualiza estados com dados mapeados [cite: 365, 366, 367]
         setSummary(s?.data || null);
         setOps(o?.data?.items || []);
         setPedidos(p?.data?.items || []);
-        setLastUpdate(s?.ts || health?.ts || new Date().toISOString());
-        setApiStatus({ loading: false, ok: true });
       } catch (e) {
         if (!alive) return;
         setApiStatus({ loading: false, ok: false });
-        // Captura detalhada de erro do backend para suporte [cite: 348, 371]
-        const detailedError = e.response?.data?.detail || e.message || "Falha na conexão com a API";
-        setError(detailedError);
+        setError(e?.message || "Erro ao carregar dados");
       }
     }
+
     load();
     return () => { alive = false; };
   }, []);
 
-  const kpis = summary?.kpis;
+  const kpis = summary?.kpis ?? summary;
 
   return (
     <div className="container">
@@ -60,97 +58,150 @@ export default function Dashboard() {
           <div className="logoMark" aria-hidden="true">VR</div>
           <div className="brandTitle">
             <strong>Vetroresina • Dashboard</strong>
-            {apiStatus.loading ? (
-              <Skeleton width="150px" height="10px" />
-            ) : (
-              lastUpdate && (
-                <span style={{ fontSize: 10, display: 'block', opacity: 0.7 }}>
-                  Sincronizado: {new Date(lastUpdate).toLocaleString('pt-BR')}
-                </span>
-              )
-            )}
+            <span>Frontend para API Protheus (primeira versão)</span>
           </div>
         </div>
+
         <div className="actions">
-          <div className="pill">
+          <div className="pill" title="Status de conexão com API">
             <span
               className="dot"
               style={{
                 background: apiStatus.loading ? "#aab3b9" : (apiStatus.ok ? "var(--green)" : "var(--red)"),
-                boxShadow: apiStatus.ok ? "0 0 0 4px rgba(31,138,59,0.12)" : "0 0 0 4px rgba(217,45,32,0.12)",
+                boxShadow: apiStatus.ok
+                  ? "0 0 0 4px rgba(31,138,59,0.12)"
+                  : "0 0 0 4px rgba(217,45,32,0.12)",
               }}
             />
             <span style={{ fontSize: 13, color: "var(--muted)" }}>
-              API: {apiStatus.loading ? "validando..." : (apiStatus.ok ? "conectado" : "falhou")}
+              API: {apiStatus.loading ? "verificando..." : (apiStatus.ok ? "conectado" : "falhou")}
             </span>
           </div>
         </div>
       </header>
 
-      {/* Banner de Erro Detalhado [cite: 405, 408] */}
-      {error && (
-        <div className="card" style={{ borderColor: "var(--red)", background: "rgba(217,45,32,0.06)", marginBottom: 20 }}>
-          <strong>⚠️ Erro de Integração</strong>
-          <div className="cardBody" style={{ fontSize: 12 }}>
-            Detalhes técnicos: <code>{error}</code>
-          </div>
+      {error ? (
+        <div className="card" style={{ borderColor: "rgba(217,45,32,0.35)", background: "rgba(217,45,32,0.06)" }}>
+          <strong>Erro ao carregar</strong>
+          <div className="cardBody" style={{ color: "var(--text)" }}>{error}</div>
         </div>
-      )}
+      ) : null}
 
       <main className="grid">
+        {/* KPIs (troca o texto pelos números reais) */}
         <section className="card col-12">
           <div className="cardHeader">
             <div className="cardTitle">
               <strong>Resumo</strong>
-              <span>Indicadores em tempo real</span>
+              <span>KPIs principais do dia</span>
             </div>
           </div>
+
           <div className="grid" style={{ marginTop: 0 }}>
-            {[
-              { label: "Pedidos abertos", val: kpis?.pedidos_abertos },
-              { label: "OPs ativas", val: kpis?.ops_ativas },
-              { label: "Bobinas disponíveis", val: kpis?.bobinas_disponiveis }
-            ].map((item, idx) => (
-              <section key={idx} className="card col-4">
-                <div className="cardTitle"><strong>{item.label}</strong></div>
-                <div style={{ marginTop: 12, fontSize: 28, fontWeight: 800 }}>
-                  {apiStatus.loading ? <Skeleton width="60px" height="34px" /> : (item.val ?? 0)}
-                </div>
-              </section>
-            ))}
+            <section className="card col-4">
+              <div className="cardTitle">
+                <strong>Pedidos abertos</strong>
+                <span>Comercial</span>
+              </div>
+              <div style={{ marginTop: 12, fontSize: 28, fontWeight: 800 }}>
+                {kpis?.pedidos_abertos ?? "-"}
+              </div>
+            </section>
+
+            <section className="card col-4">
+              <div className="cardTitle">
+                <strong>OPs ativas</strong>
+                <span>Produção</span>
+              </div>
+              <div style={{ marginTop: 12, fontSize: 28, fontWeight: 800 }}>
+                {kpis?.ops_ativas ?? "-"}
+              </div>
+            </section>
+
+            <section className="card col-4">
+              <div className="cardTitle">
+                <strong>Bobinas disponíveis</strong>
+                <span>Estoque</span>
+              </div>
+              <div style={{ marginTop: 12, fontSize: 28, fontWeight: 800 }}>
+                {kpis?.bobinas_disponiveis ?? "-"}
+              </div>
+            </section>
           </div>
         </section>
 
-        {/* Lista de OPs mapeada [cite: 450, 464, 467] */}
+
+
+        {/* Lista rápida de OPs */}
         <section className="card col-6">
-          <div className="cardHeader"><strong>Últimas OPs</strong></div>
-          <div className="cardBody">
-            {apiStatus.loading ? (
-              [1, 2, 3].map(i => <div key={i} style={{ marginBottom: 12 }}><Skeleton height="40px" /></div>)
+          <div className="cardHeader">
+            <div className="cardTitle">
+              <strong>Últimas OPs</strong>
+              <span>Top 5 (exemplo)</span>
+            </div>
+            <div className="badge">Produção</div>
+          </div>
+
+          <div className="cardBody" style={{ paddingTop: 4 }}>
+            {ops.length === 0 ? (
+              <span>Nenhuma OP encontrada.</span>
             ) : (
-              ops.map(x => (
-                <div key={x.op} style={{ marginBottom: 10, borderBottom: '1px solid #eee', paddingBottom: 5 }}>
-                  <strong>{x.op}</strong> <span>• {x.produto_nome || x.cod}</span>
-                  <div style={{ fontSize: 11, color: "var(--muted)" }}>Qtd: {x.quantidade} | Lote: {x.lote}</div>
-                </div>
-              ))
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {ops.map((x) => (
+                  <div key={x.op} style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                    <div>
+                      <strong>{x.op}</strong>{" "}
+                      <span style={{ color: "var(--muted)" }}> • {x.produto_nome || x.cod}</span>
+                      <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
+                        Lote: {x.lote} • End.: {x.endereco}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right", minWidth: 120 }}>
+                      <div style={{ fontWeight: 700 }}>{x.status}</div>
+                      <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                        Qtde: {x.quantidade}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </section>
 
-        {/* Lista de Pedidos mapeada [cite: 485, 499, 503] */}
+        {/* Lista rápida de Pedidos */}
         <section className="card col-6">
-          <div className="cardHeader"><strong>Últimos Pedidos</strong></div>
-          <div className="cardBody">
-            {apiStatus.loading ? (
-              [1, 2, 3].map(i => <div key={i} style={{ marginBottom: 12 }}><Skeleton height="40px" /></div>)
+          <div className="cardHeader">
+            <div className="cardTitle">
+              <strong>Últimos Pedidos</strong>
+              <span>Top 5 (exemplo)</span>
+            </div>
+            <div className="badge">Comercial</div>
+          </div>
+
+          <div className="cardBody" style={{ paddingTop: 4 }}>
+            {pedidos.length === 0 ? (
+              <span>Nenhum pedido encontrado.</span>
             ) : (
-              pedidos.map(p => (
-                <div key={p.numero} style={{ marginBottom: 10, borderBottom: '1px solid #eee', paddingBottom: 5 }}>
-                  <strong>{p.numero}</strong> <span>{p.cliente_nome || p.cliente_cod}</span>
-                  <div style={{ fontSize: 11, color: "var(--muted)" }}>Data: {p.emissao} | Qtd: {p.quantidade}</div>
-                </div>
-              ))
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {pedidos.map((p) => (
+                  <div key={p.pedido} style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                    <div>
+                      <strong>{p.pedido}</strong>{" "}
+                      <span>Cliente: {p.cliente_nome || p.cliente_cod}</span>
+                      <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>
+                        <span>Pedido: {p.numero}</span> <span>Produto: {p.produto}</span> <span>Qtde: {p.quantidade}</span>
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right", minWidth: 140 }}>
+                      <div style={{ fontWeight: 700 }}>{p.status}</div>
+                      <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                        {formatMoneyBRL(p.valor_total)}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </section>
