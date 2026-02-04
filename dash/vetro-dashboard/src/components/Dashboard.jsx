@@ -16,6 +16,7 @@ export default function Dashboard() {
     async function load() {
       try {
         setError("");
+        // Chamadas usando apenas os métodos que existem no seu service
         const health = await api.health();
         const [s, o, p] = await Promise.all([
           api.summary(),
@@ -33,7 +34,7 @@ export default function Dashboard() {
       } catch (e) {
         if (!alive) return;
         setApiStatus({ loading: false, ok: false });
-        setError(e.response?.data?.detail || e.message || "Erro Protheus");
+        setError(e.message || "Erro de integração Protheus");
       }
     }
     load();
@@ -45,7 +46,7 @@ export default function Dashboard() {
   return (
     <div className="container" style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
       
-      {/* 1. Cabeçalho Imutável (Sempre no topo da hierarquia) */}
+      {/* 1. Cabeçalho Imutável - Fixado no topo para evitar corte visual */}
       <header className="topbar" style={{ flexShrink: 0, padding: '16px 20px' }}>
         <div className="brand">
           <div className="logoMark">VR</div>
@@ -65,12 +66,12 @@ export default function Dashboard() {
                 boxShadow: apiStatus.ok ? "0 0 0 4px rgba(31,138,59,0.12)" : "0 0 0 4px rgba(217,45,32,0.12)"
               }} 
             />
-            <span style={{ fontSize: 13 }}>API: {apiStatus.ok ? "conectado" : "aguardando..."}</span>
+            <span style={{ fontSize: 13 }}>API: {apiStatus.ok ? "conectado" : "falhou"}</span>
           </div>
         </div>
       </header>
 
-      {/* 2. Conteúdo com Rolagem Independente (Evita corte visual) */}
+      {/* 2. Área de Conteúdo com Rolagem Independente */}
       <main className="grid" style={{ flex: 1, overflowY: 'auto', padding: '0 20px 20px 20px' }}>
         
         {error && (
@@ -79,30 +80,31 @@ export default function Dashboard() {
           </div>
         )}
 
+        {/* KPIs Reais das Tabelas SD3, SC5 e SB2 */}
         <section className="card col-12">
           <div className="cardHeader">
             <div className="cardTitle">
               <strong>Resumo Executivo</strong>
-              <span>KPIs reais extraídos das tabelas SD3 e SC5</span>
+              <span>Indicadores extraídos do ERP</span>
             </div>
           </div>
           <div className="grid" style={{ marginTop: 0 }}>
             <section className="card col-4" style={{ cursor: 'pointer' }} onClick={() => navigate("/pedidos")}>
-              <div className="cardTitle"><strong>Pedidos abertos (SC5)</strong></div>
+              <div className="cardTitle"><strong>Pedidos abertos</strong></div>
               <div style={{ marginTop: 12, fontSize: 28, fontWeight: 800 }}>
                 {kpis?.pedidos_abertos ?? "-"}
               </div>
             </section>
             
             <section className="card col-4" style={{ cursor: 'pointer' }} onClick={() => navigate("/ops")}>
-              <div className="cardTitle"><strong>OPs ativas (SD3)</strong></div>
+              <div className="cardTitle"><strong>OPs ativas</strong></div>
               <div style={{ marginTop: 12, fontSize: 28, fontWeight: 800 }}>
                 {kpis?.ops_ativas ?? "-"}
               </div>
             </section>
 
             <section className="card col-4">
-              <div className="cardTitle"><strong>Bobinas disponíveis</strong></div>
+              <div className="cardTitle"><strong>Estoque (Bobinas)</strong></div>
               <div style={{ marginTop: 12, fontSize: 28, fontWeight: 800 }}>
                 {kpis?.bobinas_disponiveis ? Math.floor(kpis.bobinas_disponiveis) : "-"}
               </div>
@@ -110,42 +112,46 @@ export default function Dashboard() {
           </div>
         </section>
 
+        {/* Listagem de OPs com nomes mapeados corretamente */}
         <section className="card col-6">
           <div className="cardHeader">
-            <div className="cardTitle"><strong>Últimas OPs</strong></div>
+            <div className="cardTitle"><strong>Últimas OPs (Produção)</strong></div>
           </div>
           <div className="cardBody" style={{ padding: 0 }}>
             {ops.map((x, i) => (
               <div 
                 key={i} 
+                className="list-item" 
                 style={{ cursor: 'pointer', padding: "16px", borderBottom: "1px solid rgba(0,0,0,0.05)" }}
-                onClick={() => navigate(`/ops?search=${x.op || x.D3_OP}`)}
+                onClick={() => navigate(`/ops/${x.D3_OP}`)}
               >
-                <strong>{x.op || x.D3_OP || "OP Ativa"}</strong>
-                <span style={{ color: "var(--muted)", fontSize: 13 }}> • {x.produto_nome || x.cod}</span>
+                <strong>{x.D3_OP || "OP Ativa"}</strong>
+                <span style={{ color: "var(--muted)", fontSize: 13 }}> • {x.produto_nome || x.D3_COD}</span>
                 <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>
-                  Qtd: {x.quantidade} | Lote: {x.lote} | End: {x.endereco}
+                  Qtd: {x.D3_QUANT} | Lote: {x.D3_LOTECTL} | End: {x.D3_XENDERE}
                 </div>
               </div>
             ))}
           </div>
         </section>
 
+        {/* Listagem de Pedidos com nomes de Clientes mapeados */}
         <section className="card col-6">
           <div className="cardHeader">
-            <div className="cardTitle"><strong>Pedidos Recentes</strong></div>
+            <div className="cardTitle"><strong>Pedidos Recentes (Comercial)</strong></div>
           </div>
           <div className="cardBody" style={{ padding: 0 }}>
             {pedidos.map((p, i) => (
               <div 
                 key={i} 
+                className="list-item" 
                 style={{ cursor: 'pointer', padding: "16px", borderBottom: "1px solid rgba(0,0,0,0.05)" }}
-                onClick={() => navigate(`/pedidos?num=${p.numero}`)}
+                onClick={() => navigate(`/pedidos-venda/${p.numero}`)}
               >
                 <strong>{p.numero}</strong>
-                <span style={{ color: "var(--muted)", fontSize: 13 }}> • {p.cliente_nome || p.cliente_cod}</span>
+                <span style={{ color: "var(--muted)", fontSize: 13 }}> • {p.cliente}</span>
                 <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>
-                  Produto: {p.produto_nome || p.produto} | Qtd: {p.quantidade} | Emissão: {p.emissao}
+                  Produto: {p.produto} | Qtd: {p.qtd}
                 </div>
               </div>
             ))}
