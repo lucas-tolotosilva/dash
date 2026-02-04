@@ -4,37 +4,31 @@ import { api } from "../services/api";
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const [apiStatus, setApiStatus] = useState({ loading: false, ok: false });
+  const [apiStatus, setApiStatus] = useState({ ok: false });
   const [summary, setSummary] = useState(null);
   const [ops, setOps] = useState([]);
   const [pedidos, setPedidos] = useState([]);
   const [error, setError] = useState("");
-  const [lastUpdate, setLastUpdate] = useState(null);
 
   useEffect(() => {
     let alive = true;
     async function load() {
       try {
         setError("");
-        // Chamadas usando apenas os métodos que existem no seu service
-        const health = await api.health();
         const [s, o, p] = await Promise.all([
           api.summary(),
           api.ops({ page: 1, page_size: 5 }),
           api.pedidosVenda({ page: 1, page_size: 5 }),
         ]);
-
         if (!alive) return;
-
         setSummary(s?.data || null);
         setOps(o?.data?.items || []);
         setPedidos(p?.data?.items || []);
-        setLastUpdate(s?.ts || health?.ts);
-        setApiStatus({ loading: false, ok: true });
+        setApiStatus({ ok: true });
       } catch (e) {
         if (!alive) return;
-        setApiStatus({ loading: false, ok: false });
-        setError(e.message || "Erro de integração Protheus");
+        setError("API fora do ar ou Rota não encontrada (404).");
+        setApiStatus({ ok: false });
       }
     }
     load();
@@ -44,119 +38,89 @@ export default function Dashboard() {
   const kpis = summary?.kpis;
 
   return (
-    <div className="container" style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+    <div className="container" style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#f0f2f5', overflow: 'hidden' }}>
       
-      {/* 1. Cabeçalho Imutável - Fixado no topo para evitar corte visual */}
-      <header className="topbar" style={{ flexShrink: 0, padding: '16px 20px' }}>
-        <div className="brand">
-          <div className="logoMark">VR</div>
-          <div className="brandTitle">
-            <strong>Vetroresina • Dashboard</strong>
-            <span style={{ fontSize: 10, display: 'block', opacity: 0.7 }}>
-              {lastUpdate ? `Sincronizado: ${new Date(lastUpdate).toLocaleString('pt-BR')}` : "Monitoramento ERP Protheus"}
-            </span>
-          </div>
+      {/* Header Estilizado - VR Gestão */}
+      <header className="topbar" style={{ flexShrink: 0, padding: '12px 24px', background: '#fff', borderBottom: '1px solid #dce0e5', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ background: '#1f8a3b', color: '#fff', padding: '6px 10px', borderRadius: '4px', fontWeight: 'bold' }}>VR</div>
+          <strong style={{ color: '#1a1d21' }}>Vetroresina • Gestão Protheus</strong>
         </div>
-        <div className="actions">
-          <div className="pill">
-            <span 
-              className="dot" 
-              style={{ 
-                background: apiStatus.ok ? "var(--green)" : "var(--red)",
-                boxShadow: apiStatus.ok ? "0 0 0 4px rgba(31,138,59,0.12)" : "0 0 0 4px rgba(217,45,32,0.12)"
-              }} 
-            />
-            <span style={{ fontSize: 13 }}>API: {apiStatus.ok ? "conectado" : "falhou"}</span>
-          </div>
+        <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+          <span style={{ fontSize: '13px', color: apiStatus.ok ? '#1f8a3b' : '#d92d20', fontWeight: '600' }}>
+            ● {apiStatus.ok ? "Sistema Online" : "Erro de Conexão"}
+          </span>
         </div>
       </header>
 
-      {/* 2. Área de Conteúdo com Rolagem Independente */}
-      <main className="grid" style={{ flex: 1, overflowY: 'auto', padding: '0 20px 20px 20px' }}>
+      {/* Grid de Dashboard Customizável */}
+      <main style={{ flex: 1, overflowY: 'auto', padding: '24px' }}>
         
-        {error && (
-          <div className="card" style={{ borderColor: "var(--red)", background: "rgba(217,45,32,0.06)", marginBottom: 20, padding: '15px' }}>
-            <div style={{ fontSize: 13, color: "var(--red)" }}>⚠️ {error}</div>
-          </div>
-        )}
+        {error && <div style={{ color: '#d92d20', background: '#fdebeb', padding: '12px', borderRadius: '6px', marginBottom: '20px', fontSize: '13px' }}>⚠️ {error}</div>}
 
-        {/* KPIs Reais das Tabelas SD3, SC5 e SB2 */}
-        <section className="card col-12">
-          <div className="cardHeader">
-            <div className="cardTitle">
-              <strong>Resumo Executivo</strong>
-              <span>Indicadores extraídos do ERP</span>
-            </div>
+        {/* 1. Linha de Métricas (KPIs) */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px', marginBottom: '24px' }}>
+          <div className="card" style={{ padding: '20px', textAlign: 'center' }}>
+            <small style={{ color: '#64748b', textTransform: 'uppercase', fontSize: '11px', fontWeight: '700' }}>Pedidos em Aberto</small>
+            <div style={{ fontSize: '32px', fontWeight: '800', marginTop: '8px' }}>{kpis?.pedidos_abertos ?? "-"}</div>
           </div>
-          <div className="grid" style={{ marginTop: 0 }}>
-            <section className="card col-4" style={{ cursor: 'pointer' }} onClick={() => navigate("/pedidos")}>
-              <div className="cardTitle"><strong>Pedidos abertos</strong></div>
-              <div style={{ marginTop: 12, fontSize: 28, fontWeight: 800 }}>
-                {kpis?.pedidos_abertos ?? "-"}
+          <div className="card" style={{ padding: '20px', textAlign: 'center' }}>
+            <small style={{ color: '#64748b', textTransform: 'uppercase', fontSize: '11px', fontWeight: '700' }}>Ordens Ativas</small>
+            <div style={{ fontSize: '32px', fontWeight: '800', marginTop: '8px' }}>{kpis?.ops_ativas ?? "-"}</div>
+          </div>
+          <div className="card" style={{ padding: '20px', textAlign: 'center' }}>
+            <small style={{ color: '#64748b', textTransform: 'uppercase', fontSize: '11px', fontWeight: '700' }}>Peso em Estoque</small>
+            <div style={{ fontSize: '32px', fontWeight: '800', marginTop: '8px' }}>{kpis?.bobinas_disponiveis ? Math.floor(kpis.bobinas_disponiveis) : "-"}</div>
+          </div>
+          <div className="card" style={{ padding: '20px', textAlign: 'center', background: '#1f8a3b', color: '#fff' }}>
+            <small style={{ textTransform: 'uppercase', fontSize: '11px', fontWeight: '700', opacity: 0.8 }}>Status Global</small>
+            <div style={{ fontSize: '24px', fontWeight: '800', marginTop: '8px' }}>EFICIENTE</div>
+          </div>
+        </div>
+
+        {/* 2. Área de Gráficos e Listas */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '24px' }}>
+          
+          {/* Espaço para o Futuro Gráfico de Vendas */}
+          <section className="card" style={{ padding: '24px', minHeight: '350px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+              <strong>Volume de Vendas (Mensal)</strong>
+              <select style={{ fontSize: '12px', padding: '4px', borderRadius: '4px', border: '1px solid #ddd' }}>
+                <option>Últimos 6 meses</option>
+              </select>
+            </div>
+            {/* Aqui entra o componente de gráfico (Recharts ou Chart.js) */}
+            <div style={{ height: '250px', background: '#f8fafc', borderRadius: '8px', border: '1px dashed #cbd5e1', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
+              Área destinada ao Gráfico de Analytics
+            </div>
+          </section>
+
+          {/* Lista de Ações Rápidas / Recentes */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <section className="card" style={{ padding: '20px' }}>
+              <strong>Últimas OPs</strong>
+              <div style={{ marginTop: '15px' }}>
+                {ops.map((x, i) => (
+                  <div key={i} style={{ padding: '10px 0', borderBottom: '1px solid #f1f5f9', fontSize: '12px' }}>
+                    <strong>{x.D3_OP || x.op}</strong> • {x.produto_nome || x.D3_COD}
+                  </div>
+                ))}
               </div>
             </section>
             
-            <section className="card col-4" style={{ cursor: 'pointer' }} onClick={() => navigate("/ops")}>
-              <div className="cardTitle"><strong>OPs ativas</strong></div>
-              <div style={{ marginTop: 12, fontSize: 28, fontWeight: 800 }}>
-                {kpis?.ops_ativas ?? "-"}
-              </div>
-            </section>
-
-            <section className="card col-4">
-              <div className="cardTitle"><strong>Estoque (Bobinas)</strong></div>
-              <div style={{ marginTop: 12, fontSize: 28, fontWeight: 800 }}>
-                {kpis?.bobinas_disponiveis ? Math.floor(kpis.bobinas_disponiveis) : "-"}
+            <section className="card" style={{ padding: '20px' }}>
+              <strong>Pedidos Recentes</strong>
+              <div style={{ marginTop: '15px' }}>
+                {pedidos.map((p, i) => (
+                  <div key={i} style={{ padding: '10px 0', borderBottom: '1px solid #f1f5f9', fontSize: '12px', cursor: 'pointer' }} onClick={() => navigate(`/pedidos-venda/${p.numero}`)}>
+                    <strong>{p.numero}</strong> • {p.cliente}
+                  </div>
+                ))}
               </div>
             </section>
           </div>
-        </section>
 
-        {/* Listagem de OPs com nomes mapeados corretamente */}
-        <section className="card col-6">
-          <div className="cardHeader">
-            <div className="cardTitle"><strong>Últimas OPs (Produção)</strong></div>
-          </div>
-          <div className="cardBody" style={{ padding: 0 }}>
-            {ops.map((x, i) => (
-              <div 
-                key={i} 
-                className="list-item" 
-                style={{ cursor: 'pointer', padding: "16px", borderBottom: "1px solid rgba(0,0,0,0.05)" }}
-                onClick={() => navigate(`/ops/${x.D3_OP}`)}
-              >
-                <strong>{x.D3_OP || "OP Ativa"}</strong>
-                <span style={{ color: "var(--muted)", fontSize: 13 }}> • {x.produto_nome || x.D3_COD}</span>
-                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>
-                  Qtd: {x.D3_QUANT} | Lote: {x.D3_LOTECTL} | End: {x.D3_XENDERE}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* Listagem de Pedidos com nomes de Clientes mapeados */}
-        <section className="card col-6">
-          <div className="cardHeader">
-            <div className="cardTitle"><strong>Pedidos Recentes (Comercial)</strong></div>
-          </div>
-          <div className="cardBody" style={{ padding: 0 }}>
-            {pedidos.map((p, i) => (
-              <div 
-                key={i} 
-                className="list-item" 
-                style={{ cursor: 'pointer', padding: "16px", borderBottom: "1px solid rgba(0,0,0,0.05)" }}
-                onClick={() => navigate(`/pedidos-venda/${p.numero}`)}
-              >
-                <strong>{p.numero}</strong>
-                <span style={{ color: "var(--muted)", fontSize: 13 }}> • {p.cliente}</span>
-                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>
-                  Produto: {p.produto} | Qtd: {p.qtd}
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
+        </div>
       </main>
     </div>
   );
