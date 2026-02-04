@@ -1,0 +1,17 @@
+:root{
+  /* Base */
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --text: #101828;
+  --muted: #667085;
+  --border: #EAECF0;
+
+  /* Acentos (Itália, bem discreto) */
+  --green: #1F8A3B;
+  --red: #D92D20;
+
+  /* UI */
+  --radius: 18px;
+  --shadow: 0 10px 30px rgba(16, 24, 40, 0.06);
+  --shadow-soft: 0 6px 18px rgba(16, 24, 40, 0.06);
+}

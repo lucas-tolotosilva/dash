@@ -1,0 +1,180 @@
+*{ box-sizing: border-box; }
+html, body{ height: 100%; }
+body{
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple Color Emoji","Segoe UI Emoji";
+  background: var(--bg);
+  color: var(--text);
+}
+
+a{ color: inherit; text-decoration: none; }
+
+.container {
+  width: 100%;
+  min-width: 1280px;     /* largura ideal para dashboards */
+  margin: 0 auto;
+  padding: 32px 32px 48px;
+}
+
+
+.topbar{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 0 8px 0;
+}
+
+.brand{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logoMark{
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background:
+    linear-gradient(90deg, rgba(31,138,59,0.18), rgba(217,45,32,0.18));
+  display: grid;
+  place-items: center;
+  box-shadow: var(--shadow-soft);
+}
+
+.brandTitle{
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+
+.brandTitle strong{
+  font-size: 14px;
+  letter-spacing: 0.2px;
+}
+
+.brandTitle span{
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.actions{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pill{
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: #fff;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: var(--shadow-soft);
+}
+
+.dot{
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 4px rgba(31,138,59,0.12);
+}
+
+.grid{
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 16px;
+}
+
+.card{
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+  padding: 16px;
+}
+
+.cardHeader{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.cardTitle{
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cardTitle strong{
+  font-size: 14px;
+}
+
+.cardTitle span{
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.badge{
+  font-size: 12px;
+  border-radius: 999px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  background: rgba(31,138,59,0.06);
+  color: var(--green);
+}
+
+.badge.red{
+  background: rgba(217,45,32,0.06);
+  color: var(--red);
+}
+
+.cardBody{
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.cardFooter{
+  margin-top: 12px;
+  display: flex;
+  gap: 10px;
+}
+
+.btn{
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #fff;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.btnPrimary{
+  border-color: rgba(31,138,59,0.35);
+  background: rgba(31,138,59,0.08);
+}
+
+.btnDanger{
+  border-color: rgba(217,45,32,0.35);
+  background: rgba(217,45,32,0.08);
+}
+
+.col-4{ grid-column: span 4; }
+.col-6{ grid-column: span 6; }
+.col-8{ grid-column: span 8; }
+.col-12{ grid-column: span 12; }
+
+@media (max-width: 980px){
+  .col-4, .col-6, .col-8{ grid-column: span 12; }
+}
