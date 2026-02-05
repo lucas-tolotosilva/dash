@@ -99,8 +99,8 @@ async def get_metrics(categoria: str, data_de: str, data_ate: str):
         if categoria == "faturamento":
             # SF2: Cabeçalho de Nota Fiscal de Saída
             where = f" AND F2_EMISSAO BETWEEN '{d_de}' AND '{d_ate}' "
-            raw = await client.consbanco("SF2", ["F2_VALBRUT"], where)
-            total = sum(float(r.get("F2_VALBRUT", 0)) for r in _rows(raw))
+            raw = await client.consbanco("SF2", ["F2_VALMERC"], where)
+            total = sum(float(r.get("F2_VALMERC", 0)) for r in _rows(raw))
             
         return {"ok": True, "total": total, "ts": now_iso()}
     except Exception as e:
