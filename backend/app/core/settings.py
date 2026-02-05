@@ -1,17 +1,22 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from app.api.routes import router
-from app.core.settings import settings
+from typing import Optional
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
 
-app = FastAPI(title="Vetroresina Dashboard API", version="1.0.0")
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", case_sensitive=False)
 
-# Configuração de CORS: Resolve o erro "blocked by CORS policy" no seu navegador
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"], # Libera acesso para o seu localhost:5173
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+    # Configurações do App [cite: 319, 320, 321]
+    app_env: str = "development"
+    backend_host: str = "127.0.0.1"
+    backend_port: int = 8000
+    
+    # Protheus Connection [cite: 325, 327]
+    protheus_consbanco_url: str = Field(default="", validation_alias="PROTHEUS_CONSBANCO_URL")
+    protheus_timeout_seconds: int = Field(default=20, validation_alias="PROTHEUS_TIMEOUT_SECONDS")
+    
+    # Autenticação (Ajuste obrigatório para o ProtheusClient) [cite: 12]
+    protheus_basic_user: str = Field(default="", validation_alias="PROTHEUS_BASIC_USER")
+    protheus_basic_pass: str = Field(default="", validation_alias="PROTHEUS_BASIC_PASS")
+    protheus_token: Optional[str] = Field(default=None, validation_alias="PROTHEUS_TOKEN")
 
-app.include_router(router)
+settings = Settings()

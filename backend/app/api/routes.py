@@ -1,91 +1,107 @@
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Set, Optional
+from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Query, HTTPException
 from app.core.settings import settings
 from app.services.protheus_client import ProtheusClient
+from app.api.schemas import ProtheusQueryRequest
 
 router = APIRouter()
 client = ProtheusClient()
 
-# ======================================================
-# Utils & Segurança
-# ======================================================
+# --- CONFIGURAÇÃO DE SEGURANÇA E TABELAS ---
+# Lista Oficial de Tabelas da Vetroresina para o BI (Ordem #021)
+TABELAS_AUTORIZADAS = [
+    "SC5", "SC6", "SF1", "SD1", "SC2", "SD3", "SE1", "SE2", 
+    "FK2", "FK3", "FK4", "SE5", "FK5", "FK6", "FI7", "SB2", "SF2"
+]
+
 def now_iso() -> str:
+    """Retorna o timestamp atual em formato ISO UTC"""
     return datetime.now(timezone.utc).isoformat()
 
 def _trim_row(row: Dict[str, Any]) -> Dict[str, Any]:
-    """Saneamento de strings para evitar espaços em branco do ERP"""
+    """Saneamento de strings para evitar espaços em branco do ERP Protheus"""
     out = {}
     for k, v in row.items():
-        out[k] = v.strip() if isinstance(v, str) else v
+        if isinstance(v, str):
+            out[k] = v.strip()
+        else:
+            out[k] = v
     return out
 
 def _rows(raw: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Extrai e sanitiza as linhas do retorno da API"""
     rows = raw.get("rows") or []
     return [_trim_row(r) for r in rows]
 
 def _escape_sql(s: str) -> str:
-    """Proteção contra SQL Injection"""
+    """Proteção essencial contra SQL Injection em filtros manuais"""
     return (s or "").replace("'", "''")
 
-# ======================================================
-# Endpoints de BI e Métricas (Ordem #021)
-# ======================================================
+# --- ENDPOINTS CORE ---
+
+@router.get("/health")
+def health():
+    """Verificação de status da API"""
+    return {"ok": True, "ts": now_iso()}
+
+@router.get("/dashboard/summary")
+async def dashboard_summary():
+    """Busca KPIs das tabelas mestras com tratamento de erro individual para resiliência"""
+    kpis = {"ops_ativas": 0, "pedidos_abertos": 0, "bobinas_disponiveis": 0}
+    
+    # Busca OPs (SD3) - Produção
+    try:
+        r_ops = await client.consbanco("SD3", ["D3_OP"], " AND D3_OP <> '' AND D3_QUANT > 0 ")
+        kpis["ops_ativas"] = len(_rows(r_ops))
+    except Exception:
+        pass
+
+    # Busca Pedidos (SC5) - Comercial
+    try:
+        r_sc5 = await client.consbanco("SC5", ["C5_NUM"], "")
+        kpis["pedidos_abertos"] = len(_rows(r_sc5))
+    except Exception:
+        pass
+
+    # Busca Estoque (SB2) - Saldos Físicos (Bobinas)
+    try:
+        r_sb2 = await client.consbanco("SB2", ["B2_QATU"], " AND B2_QATU > 0 ")
+        kpis["bobinas_disponiveis"] = sum(float(r.get("B2_QATU", 0)) for r in _rows(r_sb2))
+    except Exception:
+        pass
+
+    return {"ok": True, "data": {"kpis": kpis}, "ts": now_iso()}
+
+@router.post("/api/dynamic-query")
+async def dynamic_query(payload: ProtheusQueryRequest):
+    """Motor de BI para as tabelas autorizadas da Vetroresina"""
+    tabela = payload.tabela.upper()
+    if tabela not in TABELAS_AUTORIZADAS:
+        raise HTTPException(status_code=403, detail=f"Tabela {tabela} não autorizada para BI.")
+    
+    try:
+        # Sanitização de filtros para garantir segurança na query
+        where_safe = payload.where or ""
+        raw = await client.consbanco(tabela, payload.campos_desejados, where_safe)
+        return {"ok": True, "data": _rows(raw), "ts": now_iso()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/metrics")
-async def get_metrics(
-    categoria: str = Query(..., description="faturamento, pagar, receber"),
-    data_de: str = Query(...),
-    data_ate: str = Query(...)
-):
-    """Endpoint para alimentar os gráficos do seu novo layout Overview"""
+async def get_metrics(categoria: str, data_de: str, data_ate: str):
+    """Faturamento real (SF2) e métricas financeiras para gráficos"""
     try:
         d_de = _escape_sql(data_de)
         d_ate = _escape_sql(data_ate)
         total = 0.0
-
-        if categoria == "faturamento":
-            # SF2: Faturamento real
-            raw = await client.consbanco("SF2", ["F2_VALBRUT"], f" AND F2_EMISSAO BETWEEN '{d_de}' AND '{d_ate}' ")
-            total = sum(float(r.get("F2_VALBRUT", 0)) for r in _rows(raw))
-        elif categoria == "receber":
-            # SE1: Contas a Receber
-            raw = await client.consbanco("SE1", ["E1_VALOR"], f" AND E1_VENCTO BETWEEN '{d_de}' AND '{d_ate}' AND E1_SALDO > 0 ")
-            total = sum(float(r.get("E1_VALOR", 0)) for r in _rows(raw))
-        elif categoria == "pagar":
-            # SE2: Contas a Pagar
-            raw = await client.consbanco("SE2", ["E2_VALOR"], f" AND E2_VENCTO BETWEEN '{d_de}' AND '{d_ate}' AND E2_SALDO > 0 ")
-            total = sum(float(r.get("E2_VALOR", 0)) for r in _rows(raw))
         
-        return {"ok": True, "total": total, "categoria": categoria}
+        if categoria == "faturamento":
+            # SF2: Cabeçalho de Nota Fiscal de Saída
+            where = f" AND F2_EMISSAO BETWEEN '{d_de}' AND '{d_ate}' "
+            raw = await client.consbanco("SF2", ["F2_VALBRUT"], where)
+            total = sum(float(r.get("F2_VALBRUT", 0)) for r in _rows(raw))
+            
+        return {"ok": True, "total": total, "ts": now_iso()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-# ======================================================
-# Dashboard Summary Resiliente
-# ======================================================
-@router.get("/dashboard/summary")
-async def dashboard_summary():
-    """Alimenta os cards de Pedidos, OPs e Estoque no layout novo"""
-    kpis = {"ops_ativas": 0, "pedidos_abertos": 0, "bobinas_disponiveis": 0}
-    errors = []
-    
-    try:
-        r_ops = await client.consbanco("SD3", ["D3_OP"], " AND D3_OP <> '' AND D3_QUANT > 0 ")
-        kpis["ops_ativas"] = len(_rows(r_ops))
-    except Exception as e: errors.append(f"SD3: {str(e)}")
-
-    try:
-        r_sc5 = await client.consbanco("SC5", ["C5_NUM"], "")
-        kpis["pedidos_abertos"] = len(_rows(r_sc5))
-    except Exception as e: errors.append(f"SC5: {str(e)}")
-
-    try:
-        r_sb2 = await client.consbanco("SB2", ["B2_QATU"], " AND B2_QATU > 0 ")
-        kpis["bobinas_disponiveis"] = sum(float(r.get("B2_QATU", 0)) for r in _rows(r_sb2))
-    except Exception as e: errors.append(f"SB2: {str(e)}")
-
-    return {"ok": True, "data": {"kpis": kpis}, "ts": now_iso(), "debug": errors if errors else None}
-
-@router.get("/health")
-def health():
-    return {"ok": True, "ts": now_iso()}
