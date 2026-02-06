@@ -1,183 +1,160 @@
 import React, { useEffect, useState } from "react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { 
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
+  BarChart, Bar, PieChart, Pie, Cell, Legend 
+} from 'recharts';
 import { api } from "../services/api"; 
 import ReportBuilder from "../components/ReportBuilder";
-import logo from "../assets/Prancheta-8-_1_ (1).ico"
+import logo from "../assets/Prancheta-8-_1_ (1).ico";
 
-// --- Utilitários de Formatação ---
-const formatCurrency = (val) => 
-  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
-
-const formatNumber = (val) => 
-  new Intl.NumberFormat('pt-BR').format(val || 0);
+// --- Utilitários ---
+const formatCurrency = (val) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
+const COLORS = ['#1f8a3b', '#334155', '#64748B', '#94A3B8', '#CBD5E1'];
 
 export default function Dashboard() {
+  const [activeTab, setActiveTab] = useState("overview");
   const [apiStatus, setApiStatus] = useState({ ok: false, loading: true });
   const [summary, setSummary] = useState(null);
-  const [analyticsData, setAnalyticsData] = useState([]);
-  const [isBuilderOpen, setIsBuilderOpen] = useState(false);
+  const [investigacao, setInvestigacao] = useState({ notas: [], pedidos: [] });
 
-  // ESTADO DO CALENDÁRIO: Sincronizado para filtros (YYYY-MM-DD para o input)
-  const [periodo, setPeriodo] = useState({
-    de: "2024-01-01", 
-    ate: new Date().toISOString().split('T')[0]
+  // ESTADO INICIAL: Tenta recuperar do localStorage ou usa o padrão predefinido
+  const [periodo, setPeriodo] = useState(() => {
+    const salvo = localStorage.getItem("vetro_dashboard_periodo");
+    if (salvo) {
+      return JSON.parse(salvo);
+    }
+    return { 
+      de: "2024-01-01", 
+      ate: new Date().toISOString().split('T')[0] 
+    };
   });
 
   async function loadData() {
     try {
       setApiStatus(prev => ({ ...prev, loading: true }));
       
-      // Limpa hifens para o padrão Protheus (YYYYMMDD) exigido pelo backend
+      // Persiste o período selecionado para futuras sessões
+      localStorage.setItem("vetro_dashboard_periodo", JSON.stringify(periodo));
+
       const d_de = periodo.de.replace(/-/g, '');
       const d_ate = periodo.ate.replace(/-/g, '');
+      const queryParams = `?data_de=${d_de}&data_ate=${d_ate}`;
 
-      // Chamadas sincronizadas com o routes.py
-      const [resSummary, resMetrics] = await Promise.all([
+      const [resSummary, resFiscal, resComercial] = await Promise.all([
         api.summary(), 
-        api.request(`/metrics?categoria=faturamento&data_de=${d_de}&data_ate=${d_ate}`)
+        api.request(`/fiscal/notas-investigacao${queryParams}`),
+        api.request(`/comercial/pedidos-investigacao${queryParams}`)
       ]);
       
-      if (resSummary?.ok) {
-        setSummary(resSummary.data);
-      }
-
-      if (resMetrics?.ok) {
-        setAnalyticsData([{ 
-          name: "Faturamento Real", 
-          valor: resMetrics.total 
-        }]);
-      }
+      if (resSummary?.ok) setSummary(resSummary.data);
+      if (resFiscal?.ok) setInvestigacao(prev => ({ ...prev, notas: resFiscal.data }));
+      if (resComercial?.ok) setInvestigacao(prev => ({ ...prev, pedidos: resComercial.data }));
       
       setApiStatus({ ok: true, loading: false });
     } catch (e) { 
-      console.error("Erro na carga:", e.message);
       setApiStatus({ ok: false, loading: false }); 
     }
   }
 
-  useEffect(() => {
-    loadData();
-  }, [periodo]);
+  // O useEffect agora só dispara no "mount" inicial. 
+  // O loadData subsequente é controlado pelo botão de Sincronizar (🔄) para evitar loops de escrita no storage.
+  useEffect(() => { 
+    loadData(); 
+  }, []);
 
-  const kpis = summary?.kpis;
+  // Lógica para o Gráfico de Top Clientes
+  const getTopClientes = () => {
+    const map = investigacao.notas.reduce((acc, n) => {
+      acc[n.F2_CLIENTE] = (acc[n.F2_CLIENTE] || 0) + n.F2_VALMERC;
+      return acc;
+    }, {});
+    return Object.entries(map)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value).slice(0, 5);
+  };
 
   return (
     <div style={containerStyle}>
-      {/* SIDEBAR */}
       <aside style={sidebarStyle}>
         <div style={logoAreaStyle}>
           <img src={logo} alt="Logo" style={logoImgStyle} />
           <div style={logoTextStyle}>
-            <div style={{ fontWeight: '800', fontSize: '18px' }}>Vetroresina</div>
-            <div style={{ fontSize: '12px', color: '#9A9FA5' }}>Management Hub</div>
+            <div style={{ fontWeight: '800', fontSize: '18px', color: '#FFF' }}>Vetroresina</div>
+            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}>BI Hub</div>
           </div>
         </div>
-
         <nav style={navStyle}>
-          <div 
-            style={navItemStyle(!isBuilderOpen)} 
-            onClick={() => setIsBuilderOpen(false)}
-          >
-            Dashboard
-          </div>
-          <div 
-            style={navItemStyle(isBuilderOpen)} 
-            onClick={() => setIsBuilderOpen(true)}
-          >
-            Report Builder
-          </div>
+          <div style={navItemStyle(activeTab === 'overview')} onClick={() => setActiveTab('overview')}>📊 Overview</div>
+          <div style={navItemStyle(activeTab === 'builder')} onClick={() => setActiveTab('builder')}>🛠 Builder</div>
         </nav>
-
         <div style={statusPillStyle(apiStatus.ok)}>
           <div style={dotStyle(apiStatus.ok)} />
-          <span style={{ fontSize: '12px', fontWeight: '700' }}>
-            ERP: {apiStatus.loading ? 'CARREGANDO...' : (apiStatus.ok ? 'ONLINE' : 'DESCONECTADO')}
-          </span>
+          <span style={{ fontSize: '11px', color: '#FFF' }}>{apiStatus.ok ? 'CONECTADO' : 'OFFLINE'}</span>
         </div>
       </aside>
 
-      {/* CONTEÚDO PRINCIPAL */}
       <main style={mainStyle}>
-        {isBuilderOpen ? (
-          <ReportBuilder 
-            tabelasAutorizadas={["SC5", "SC6", "SD3", "SB2", "SF2", "SA1", "SB1"]} 
-            onClose={() => setIsBuilderOpen(false)} 
-          />
-        ) : (
+        {activeTab === 'builder' ? <ReportBuilder onClose={() => setActiveTab('overview')} /> : (
           <>
             <header style={headerStyle}>
-              <div>
-                <h1 style={titleStyle}>Overview Comercial</h1>
-                <p style={subtitleStyle}>BI Sincronizado com Protheus (Tabelas SA1, SB1, SC5, SD3)</p>
-              </div>
-
+              <h1 style={titleStyle}>Management Hub</h1>
               <div style={calendarContainerStyle}>
-                <div style={inputGroupStyle}>
-                  <label style={labelMiniStyle}>DE:</label>
-                  <input 
-                    type="date" 
-                    value={periodo.de} 
-                    onChange={(e) => setPeriodo({...periodo, de: e.target.value})}
-                    style={inputDateStyle}
-                  />
-                </div>
-                <div style={inputGroupStyle}>
-                  <label style={labelMiniStyle}>ATÉ:</label>
-                  <input 
-                    type="date" 
-                    value={periodo.ate} 
-                    onChange={(e) => setPeriodo({...periodo, ate: e.target.value})}
-                    style={inputDateStyle}
-                  />
-                </div>
-                <button onClick={loadData} style={btnRefreshStyle}>🔍 Filtrar</button>
+                <input type="date" value={periodo.de} onChange={e => setPeriodo({...periodo, de: e.target.value})} style={inputDateStyle} />
+                <input type="date" value={periodo.ate} onChange={e => setPeriodo({...periodo, ate: e.target.value})} style={inputDateStyle} />
+                <button onClick={loadData} style={btnRefreshStyle}>🔄</button>
               </div>
             </header>
 
-            {/* KPIs */}
             <div style={kpiGridStyle}>
-              <div style={kpiCardStyle}>
-                <div style={kpiLabelStyle}>Pedidos Abertos (SC5)</div>
-                <div style={{ fontSize: '32px', fontWeight: '800', color: '#1f8a3b' }}>
-                  {apiStatus.loading ? "..." : formatNumber(kpis?.pedidos_abertos)}
-                </div>
-              </div>
-              <div style={kpiCardStyle}>
-                <div style={kpiLabelStyle}>Ordens Ativas (SD3)</div>
-                <div style={{ fontSize: '32px', fontWeight: '800' }}>
-                  {apiStatus.loading ? "..." : formatNumber(kpis?.ops_ativas)}
-                </div>
-              </div>
-              <div style={kpiCardStyle}>
-                <div style={kpiLabelStyle}>Estoque Bobinas (SB2)</div>
-                <div style={{ fontSize: '32px', fontWeight: '800' }}>
-                  {apiStatus.loading ? "..." : formatNumber(kpis?.bobinas_disponiveis)}
-                </div>
-              </div>
+              <KpiCard title="Pedidos" value={summary?.kpis.pedidos_abertos} sub="Tabela SC5" />
+              <KpiCard title="OPs Ativas" value={summary?.kpis.ops_ativas} sub="Tabela SD3" />
+              <KpiCard title="Faturamento" value={formatCurrency(investigacao.notas.reduce((a, b) => a + b.F2_VALMERC, 0))} sub="Tabela SF2" color="#1f8a3b" />
+              <KpiCard title="Ticket Médio" value={formatCurrency(investigacao.notas.length ? investigacao.notas.reduce((a, b) => a + b.F2_VALMERC, 0) / investigacao.notas.length : 0)} sub="BI Calc" />
             </div>
 
-            {/* GRÁFICO */}
-            <section style={chartCardStyle}>
-              <h3 style={{ marginBottom: '24px', fontWeight: '700' }}>Faturamento Real (SF2)</h3>
-              <div style={{ height: '350px' }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={analyticsData}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#EFEFEF" />
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} />
-                    <YAxis 
-                      axisLine={false} 
-                      tickLine={false} 
-                      tickFormatter={(val) => `R$ ${val / 1000}k`} 
-                    />
-                    <Tooltip 
-                      cursor={{ fill: '#F4F7FA' }} 
-                      formatter={(val) => [formatCurrency(val), "Faturamento Total"]}
-                    />
-                    <Bar dataKey="valor" fill="#1f8a3b" radius={[6, 6, 0, 0]} barSize={80} />
+            <div style={dashboardGrid}>
+              <section style={cardStyle}>
+                <h3 style={cardTitle}>Tendência de Faturamento</h3>
+                <ResponsiveContainer width="100%" height={200}>
+                  <AreaChart data={investigacao.notas}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="F2_EMISSAO" hide />
+                    <YAxis fontSize={10} tickFormatter={v => `${v/1000}k`} />
+                    <Tooltip />
+                    <Area type="monotone" dataKey="F2_VALMERC" stroke="#1f8a3b" fill="rgba(31,138,59,0.1)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </section>
+
+              <section style={cardStyle}>
+                <h3 style={cardTitle}>Top 5 Clientes (R$)</h3>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={getTopClientes()} layout="vertical">
+                    <XAxis type="number" hide />
+                    <YAxis dataKey="name" type="category" fontSize={10} width={80} />
+                    <Tooltip />
+                    <Bar dataKey="value" fill="#334155" radius={[0, 4, 4, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
-              </div>
-            </section>
+              </section>
+
+              <section style={{...cardStyle, gridColumn: 'span 2'}}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
+                   <h3 style={cardTitle}>Monitoramento Investigativo (SF2)</h3>
+                   <button style={btnSmall} onClick={() => alert("Exportando...")}>Exportar Excel</button>
+                </div>
+                <div style={tableWrapper}>
+                  <table style={tableStyle}>
+                    <thead><tr><th>NF</th><th>Data</th><th>Cliente</th><th>Estado</th><th>Valor</th></tr></thead>
+                    <tbody>
+                      {investigacao.notas.map((n, i) => (
+                        <tr key={i}><td>{n.F2_DOC}</td><td>{n.F2_EMISSAO}</td><td>{n.F2_CLIENTE}</td><td>{n.F2_EST}</td><td>{formatCurrency(n.F2_VALMERC)}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
           </>
         )}
       </main>
@@ -185,27 +162,36 @@ export default function Dashboard() {
   );
 }
 
-// --- ESTILOS ---
-const containerStyle = { display: 'flex', height: '100vh', background: '#F8F9FB', fontFamily: 'sans-serif', overflow: 'hidden' };
-const sidebarStyle = { width: '280px', background: '#FFFFFF', borderRight: '1px solid #EFEFEF', display: 'flex', flexDirection: 'column', padding: '32px 24px' };
-const logoAreaStyle = { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '48px' };
-const logoImgStyle = { width: '40px', height: '40px', borderRadius: '12px' };
+const KpiCard = ({ title, value, sub, color }) => (
+  <div style={kpiCardStyle}>
+    <div style={kpiLabelStyle}>{title}</div>
+    <div style={{ fontSize: '24px', fontWeight: '900', color: color || '#1E293B', margin: '4px 0' }}>{value || '0'}</div>
+    <div style={kpiSubStyle}>{sub}</div>
+  </div>
+);
+
+const containerStyle = { display: 'flex', height: '100vh', background: '#F1F5F9', fontFamily: 'sans-serif' };
+const sidebarStyle = { width: '250px', background: '#0F172A', padding: '32px 20px', display: 'flex', flexDirection: 'column' };
+const logoAreaStyle = { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '40px' };
+const logoImgStyle = { width: '36px', borderRadius: '8px' };
 const logoTextStyle = { lineHeight: '1.2' };
-const navStyle = { display: 'flex', flexDirection: 'column', gap: '4px' };
-const navItemStyle = (active) => ({ padding: '12px 16px', borderRadius: '12px', fontSize: '14px', fontWeight: '700', cursor: 'pointer', background: active ? '#F4F4F4' : 'transparent', color: active ? '#1f8a3b' : '#6F767E', transition: '0.2s' });
-const statusPillStyle = (ok) => ({ marginTop: 'auto', padding: '16px', background: ok ? '#EAF7ED' : '#F4F4F4', borderRadius: '16px', display: 'flex', alignItems: 'center', gap: '10px' });
-const dotStyle = (ok) => ({ width: '8px', height: '8px', borderRadius: '50%', background: ok ? '#31B047' : '#FF4D4D' });
-const mainStyle = { flex: 1, overflowY: 'auto', padding: '48px 64px' };
-const headerStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '40px' };
-const titleStyle = { fontSize: '32px', fontWeight: '800', margin: 0 };
-const subtitleStyle = { color: '#9A9FA5', margin: '4px 0 0 0' };
-const kpiGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px', marginBottom: '48px' };
-const kpiCardStyle = { background: '#FFFFFF', borderRadius: '24px', border: '1px solid #EFEFEF', padding: '32px' };
-const kpiLabelStyle = { fontSize: '14px', fontWeight: '700', color: '#6F767E', marginBottom: '16px' };
-const kpiSubStyle = { fontSize: '12px', color: '#9A9FA5', marginTop: '8px' };
-const chartCardStyle = { background: '#FFFFFF', borderRadius: '24px', padding: '32px', border: '1px solid #EFEFEF' };
-const calendarContainerStyle = { display: 'flex', gap: '12px', alignItems: 'center', background: '#FFF', padding: '10px 16px', borderRadius: '12px', border: '1px solid #EFEFEF' };
-const inputGroupStyle = { display: 'flex', flexDirection: 'column', gap: '2px' };
-const labelMiniStyle = { fontSize: '10px', fontWeight: '800', color: '#9A9FA5' };
-const inputDateStyle = { border: '1px solid #EEE', borderRadius: '6px', padding: '4px 8px', fontSize: '12px', outline: 'none' };
-const btnRefreshStyle = { background: '#1f8a3b', color: '#FFF', border: 'none', padding: '8px 12px', borderRadius: '8px', fontWeight: '700', cursor: 'pointer' };
+const navStyle = { flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' };
+const navItemStyle = (active) => ({ padding: '12px 16px', borderRadius: '10px', color: active ? '#FFF' : '#94A3B8', background: active ? '#1E293B' : 'transparent', cursor: 'pointer', fontWeight: '700', fontSize: '13px' });
+const statusPillStyle = (ok) => ({ marginTop: 'auto', padding: '12px', background: '#1E293B', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '8px' });
+const dotStyle = (ok) => ({ width: '8px', height: '8px', borderRadius: '50%', background: ok ? '#31B047' : '#EF4444' });
+const mainStyle = { flex: 1, padding: '32px 40px', overflowY: 'auto' };
+const headerStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' };
+const titleStyle = { fontSize: '24px', fontWeight: '800', color: '#0F172A' };
+const calendarContainerStyle = { display: 'flex', gap: '8px', background: '#FFF', padding: '6px', borderRadius: '10px', border: '1px solid #E2E8F0' };
+const inputDateStyle = { border: 'none', background: '#F8FAFC', padding: '6px', borderRadius: '6px', fontSize: '11px', fontWeight: '600' };
+const btnRefreshStyle = { background: '#1f8a3b', color: '#FFF', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer' };
+const kpiGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px' };
+const kpiCardStyle = { background: '#FFF', padding: '20px', borderRadius: '16px', border: '1px solid #E2E8F0' };
+const kpiLabelStyle = { fontSize: '11px', fontWeight: '800', color: '#64748B', textTransform: 'uppercase' };
+const kpiSubStyle = { fontSize: '10px', color: '#94A3B8' };
+const dashboardGrid = { display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '20px' };
+const cardStyle = { background: '#FFF', padding: '24px', borderRadius: '20px', border: '1px solid #E2E8F0' };
+const cardTitle = { fontSize: '14px', fontWeight: '700', margin: '0 0 16px 0', color: '#1E293B' };
+const tableWrapper = { maxHeight: '300px', overflowY: 'auto' };
+const tableStyle = { width: '100%', borderCollapse: 'collapse', fontSize: '11px' };
+const btnSmall = { padding: '4px 10px', background: '#F1F5F9', border: 'none', borderRadius: '6px', fontSize: '10px', fontWeight: '700', cursor: 'pointer' };
