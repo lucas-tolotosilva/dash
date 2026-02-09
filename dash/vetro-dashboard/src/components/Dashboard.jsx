@@ -1,39 +1,35 @@
 import React, { useEffect, useState } from "react";
 import { 
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  BarChart, Bar, PieChart, Pie, Cell, Legend 
+  BarChart, Bar 
 } from 'recharts';
 import { api } from "../services/api"; 
 import ReportBuilder from "../components/ReportBuilder";
+import ResumoVendas from "../pages/Resumovendas"; // Certifique-se de que o arquivo existe nesta pasta
 import logo from "../assets/Prancheta-8-_1_ (1).ico";
 
 // --- Utilitários ---
 const formatCurrency = (val) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
-const COLORS = ['#1f8a3b', '#334155', '#64748B', '#94A3B8', '#CBD5E1'];
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("overview");
+  const [collapsed, setCollapsed] = useState(false); // Estado para a Sidebar colapsável
   const [apiStatus, setApiStatus] = useState({ ok: false, loading: true });
   const [summary, setSummary] = useState(null);
   const [investigacao, setInvestigacao] = useState({ notas: [], pedidos: [] });
 
-  // ESTADO INICIAL: Tenta recuperar do localStorage ou usa o padrão predefinido
+  // MEMÓRIA DE PERÍODO: Recupera a última agenda definida ou usa o padrão
   const [periodo, setPeriodo] = useState(() => {
     const salvo = localStorage.getItem("vetro_dashboard_periodo");
-    if (salvo) {
-      return JSON.parse(salvo);
-    }
-    return { 
-      de: "2024-01-01", 
-      ate: new Date().toISOString().split('T')[0] 
-    };
+    if (salvo) return JSON.parse(salvo);
+    return { de: "2024-01-01", ate: new Date().toISOString().split('T')[0] };
   });
 
   async function loadData() {
     try {
       setApiStatus(prev => ({ ...prev, loading: true }));
       
-      // Persiste o período selecionado para futuras sessões
+      // Salva o período atual no navegador
       localStorage.setItem("vetro_dashboard_periodo", JSON.stringify(periodo));
 
       const d_de = periodo.de.replace(/-/g, '');
@@ -52,17 +48,14 @@ export default function Dashboard() {
       
       setApiStatus({ ok: true, loading: false });
     } catch (e) { 
+      console.error("Erro na carga:", e.message);
       setApiStatus({ ok: false, loading: false }); 
     }
   }
 
-  // O useEffect agora só dispara no "mount" inicial. 
-  // O loadData subsequente é controlado pelo botão de Sincronizar (🔄) para evitar loops de escrita no storage.
-  useEffect(() => { 
-    loadData(); 
-  }, []);
+  // Carrega os dados ao iniciar e respeita a memória do localStorage
+  useEffect(() => { loadData(); }, []);
 
-  // Lógica para o Gráfico de Top Clientes
   const getTopClientes = () => {
     const map = investigacao.notas.reduce((acc, n) => {
       acc[n.F2_CLIENTE] = (acc[n.F2_CLIENTE] || 0) + n.F2_VALMERC;
@@ -75,26 +68,45 @@ export default function Dashboard() {
 
   return (
     <div style={containerStyle}>
-      <aside style={sidebarStyle}>
-        <div style={logoAreaStyle}>
+      {/* SIDEBAR COLAPSÁVEL DINÂMICA */}
+      <aside style={sidebarStyle(collapsed)}>
+        <button onClick={() => setCollapsed(!collapsed)} style={toggleCollapseBtn}>
+          {collapsed ? "»" : "«"}
+        </button>
+
+        <div style={logoAreaStyle(collapsed)}>
           <img src={logo} alt="Logo" style={logoImgStyle} />
-          <div style={logoTextStyle}>
-            <div style={{ fontWeight: '800', fontSize: '18px', color: '#FFF' }}>Vetroresina</div>
-            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}>BI Hub</div>
-          </div>
+          {!collapsed && (
+            <div style={logoTextStyle}>
+              <div style={{ fontWeight: '800', fontSize: '18px', color: '#FFF' }}>Vetroresina</div>
+              <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)' }}>Management Hub</div>
+            </div>
+          )}
         </div>
+
         <nav style={navStyle}>
-          <div style={navItemStyle(activeTab === 'overview')} onClick={() => setActiveTab('overview')}>📊 Overview</div>
-          <div style={navItemStyle(activeTab === 'builder')} onClick={() => setActiveTab('builder')}>🛠 Builder</div>
+          <div style={navItemStyle(activeTab === 'overview', collapsed)} onClick={() => setActiveTab('overview')} title="Dashboard">
+            <span style={iconStyle}>📊</span> {!collapsed && "Dashboard"}
+          </div>
+          <div style={navItemStyle(activeTab === 'resumo', collapsed)} onClick={() => setActiveTab('resumo')} title="Resumo de Vendas">
+            <span style={iconStyle}>📈</span> {!collapsed && "Resumo Vendas"}
+          </div>
+          <div style={navItemStyle(activeTab === 'builder', collapsed)} onClick={() => setActiveTab('builder')} title="Report Builder">
+            <span style={iconStyle}>🛠</span> {!collapsed && "Builder"}
+          </div>
         </nav>
-        <div style={statusPillStyle(apiStatus.ok)}>
+
+        <div style={statusPillStyle(apiStatus.ok, collapsed)}>
           <div style={dotStyle(apiStatus.ok)} />
-          <span style={{ fontSize: '11px', color: '#FFF' }}>{apiStatus.ok ? 'CONECTADO' : 'OFFLINE'}</span>
+          {!collapsed && <span style={{ fontSize: '11px', color: '#FFF' }}>{apiStatus.ok ? 'CONECTADO' : 'OFFLINE'}</span>}
         </div>
       </aside>
 
       <main style={mainStyle}>
-        {activeTab === 'builder' ? <ReportBuilder onClose={() => setActiveTab('overview')} /> : (
+        {activeTab === 'builder' && <ReportBuilder onClose={() => setActiveTab('overview')} />}
+        {activeTab === 'resumo' && <ResumoVendas />}
+        
+        {activeTab === 'overview' && (
           <>
             <header style={headerStyle}>
               <h1 style={titleStyle}>Management Hub</h1>
@@ -106,9 +118,9 @@ export default function Dashboard() {
             </header>
 
             <div style={kpiGridStyle}>
-              <KpiCard title="Pedidos" value={summary?.kpis.pedidos_abertos} sub="Tabela SC5" />
-              <KpiCard title="OPs Ativas" value={summary?.kpis.ops_ativas} sub="Tabela SD3" />
-              <KpiCard title="Faturamento" value={formatCurrency(investigacao.notas.reduce((a, b) => a + b.F2_VALMERC, 0))} sub="Tabela SF2" color="#1f8a3b" />
+              <KpiCard title="Pedidos" value={summary?.kpis.pedidos_abertos} sub="SC5" />
+              <KpiCard title="OPs Ativas" value={summary?.kpis.ops_ativas} sub="SD3" />
+              <KpiCard title="Faturamento" value={formatCurrency(investigacao.notas.reduce((a, b) => a + b.F2_VALMERC, 0))} sub="SF2" color="#1f8a3b" />
               <KpiCard title="Ticket Médio" value={formatCurrency(investigacao.notas.length ? investigacao.notas.reduce((a, b) => a + b.F2_VALMERC, 0) / investigacao.notas.length : 0)} sub="BI Calc" />
             </div>
 
@@ -162,6 +174,7 @@ export default function Dashboard() {
   );
 }
 
+// --- SUBCOMPONENTES ---
 const KpiCard = ({ title, value, sub, color }) => (
   <div style={kpiCardStyle}>
     <div style={kpiLabelStyle}>{title}</div>
@@ -170,14 +183,63 @@ const KpiCard = ({ title, value, sub, color }) => (
   </div>
 );
 
+// --- ESTILOS DINÂMICOS ---
+const sidebarStyle = (isCollapsed) => ({
+  width: isCollapsed ? '80px' : '250px',
+  background: '#0F172A',
+  padding: '32px 16px',
+  display: 'flex',
+  flexDirection: 'column',
+  transition: 'width 0.3s ease',
+  position: 'relative'
+});
+
+const navItemStyle = (active, isCollapsed) => ({
+  padding: '12px',
+  borderRadius: '10px',
+  color: active ? '#FFF' : '#94A3B8',
+  background: active ? '#1E293B' : 'transparent',
+  cursor: 'pointer',
+  fontWeight: '700',
+  fontSize: '13px',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: isCollapsed ? 'center' : 'flex-start',
+  marginBottom: '4px'
+});
+
+const logoAreaStyle = (isCollapsed) => ({
+  display: 'flex',
+  alignItems: 'center',
+  gap: '12px',
+  marginBottom: '40px',
+  justifyContent: isCollapsed ? 'center' : 'flex-start'
+});
+
+const statusPillStyle = (ok, isCollapsed) => ({
+  marginTop: 'auto',
+  padding: '12px',
+  background: '#1E293B',
+  borderRadius: '12px',
+  display: 'flex',
+  alignItems: 'center',
+  gap: '8px',
+  justifyContent: isCollapsed ? 'center' : 'flex-start'
+});
+
+const toggleCollapseBtn = {
+  position: 'absolute', right: '-12px', top: '40px', width: '24px', height: '24px',
+  background: '#1f8a3b', color: '#FFF', border: 'none', borderRadius: '50%',
+  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+  boxShadow: '0 4px 6px rgba(0,0,0,0.1)', zIndex: 10
+};
+
+// --- ESTILOS ESTÁTICOS ---
+const iconStyle = { fontSize: '18px', minWidth: '24px', textAlign: 'center' };
 const containerStyle = { display: 'flex', height: '100vh', background: '#F1F5F9', fontFamily: 'sans-serif' };
-const sidebarStyle = { width: '250px', background: '#0F172A', padding: '32px 20px', display: 'flex', flexDirection: 'column' };
-const logoAreaStyle = { display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '40px' };
 const logoImgStyle = { width: '36px', borderRadius: '8px' };
 const logoTextStyle = { lineHeight: '1.2' };
-const navStyle = { flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' };
-const navItemStyle = (active) => ({ padding: '12px 16px', borderRadius: '10px', color: active ? '#FFF' : '#94A3B8', background: active ? '#1E293B' : 'transparent', cursor: 'pointer', fontWeight: '700', fontSize: '13px' });
-const statusPillStyle = (ok) => ({ marginTop: 'auto', padding: '12px', background: '#1E293B', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '8px' });
+const navStyle = { flex: 1, display: 'flex', flexDirection: 'column' };
 const dotStyle = (ok) => ({ width: '8px', height: '8px', borderRadius: '50%', background: ok ? '#31B047' : '#EF4444' });
 const mainStyle = { flex: 1, padding: '32px 40px', overflowY: 'auto' };
 const headerStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' };

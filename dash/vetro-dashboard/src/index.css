@@ -13,6 +13,18 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box; /* Garante que padding não aumente a largura */
+}
+
+body, html, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden; /* Impede a barra de rolagem dupla */
+}
+
 a {
   font-weight: 500;
   color: #646cff;
@@ -26,8 +38,9 @@ body {
   margin: 0;
   display: flex;
   place-items: center;
-  min-width: 1280px;
-  min-height: 100vh;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden; /* Impede a barra de rolagem dupla */
 }
 
 h1 {
