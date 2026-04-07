@@ -1,4 +1,4 @@
-const BASE_URL = "http://127.0.0.1:8000";
+const BASE_URL = "http://192.168.0.199:8000";
 
 async function request(path, options = {}) {
   const r = await fetch(`${BASE_URL}${path}`, {

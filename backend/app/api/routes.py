@@ -3,10 +3,27 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Query, HTTPException
 from app.core.settings import settings
 from app.services.protheus_client import ProtheusClient
-from app.api.schemas import ProtheusQueryRequest
+import pandas as pd
+from fastapi import APIRouter, HTTPException
+from app.api.schemas import ProtheusQueryRequest, ReportBuilderRequest
 
 router = APIRouter()
 client = ProtheusClient()
+
+# --- DICIONÁRIO DE DADOS (Camada Semântica) ---
+# Isso traduz a linguagem de negócio para as tabelas do Protheus
+DICIONARIO_BI = {
+    "faturamento": {
+        "tabela": "SF2",
+        "campo_data": "F2_EMISSAO",
+        "campos_base": ["F2_DOC", "F2_EMISSAO", "F2_CLIENTE", "F2_VALMERC", "F2_VALBRUT"]
+    },
+    "pedidos": {
+        "tabela": "SC5",
+        "campo_data": "C5_EMISSAO",
+        "campos_base": ["C5_NUM", "C5_EMISSAO", "C5_CLIENTE", "C5_VEND1", "C5_TOTAL"]
+    }
+}
 
 # --- CONFIGURAÇÃO DE SEGURANÇA E TABELAS ---
 TABELAS_AUTORIZADAS = [
@@ -34,6 +51,78 @@ def _escape_sql(s: str) -> str:
     return (s or "").replace("'", "''")
 
 # --- ENDPOINTS EXISTENTES (MARCO ZERO) ---
+@router.post("/api/bi/build")
+async def build_dynamic_report(payload: ReportBuilderRequest):
+    """
+    Motor de processamento do Report Builder.
+    Extrai do Protheus e consolida os dados na memória usando Pandas.
+    """
+    assunto_config = DICIONARIO_BI.get(payload.assunto.lower())
+    if not assunto_config:
+        raise HTTPException(status_code=400, detail="Assunto não configurado no Dicionário de BI.")
+
+    tabela = assunto_config["tabela"]
+    campo_data = assunto_config["campo_data"]
+    
+    # 1. Monta os campos necessários (Dimensões + Métricas)
+    campos_extrair = list(set(payload.dimensoes + payload.metricas + [campo_data]))
+    
+    # 2. Trava de Segurança: Filtro de Data Obrigatório
+    d_de = _escape_sql(payload.data_de)
+    d_ate = _escape_sql(payload.data_ate)
+    where = f" AND {campo_data} BETWEEN '{d_de}' AND '{d_ate}' AND D_E_L_E_T_ <> '*' "
+
+    try:
+        # 3. Extração do Dado Bruto via API do Protheus
+        raw = await client.consbanco(tabela, campos_extrair, where)
+        dados_brutos = _rows(raw)
+
+        if not dados_brutos:
+            return {"ok": True, "data": [], "msg": "Nenhum dado retornado no período."}
+
+        # 4. Transformação Analítica com Pandas
+        df = pd.DataFrame(dados_brutos)
+
+        # Converte as colunas de métricas para float para garantir cálculo matemático
+        for metrica in payload.metricas:
+            if metrica in df.columns:
+                df[metrica] = pd.to_numeric(df[metrica], errors='coerce').fillna(0)
+
+        # 5. Agrupamento (Group By)
+        if payload.dimensoes:
+            if payload.operacao == "SUM":
+                df_agrupado = df.groupby(payload.dimensoes)[payload.metricas].sum().reset_index()
+            elif payload.operacao == "COUNT":
+                df_agrupado = df.groupby(payload.dimensoes)[payload.metricas].count().reset_index()
+            elif payload.operacao == "AVG":
+                df_agrupado = df.groupby(payload.dimensoes)[payload.metricas].mean().reset_index()
+            else:
+                df_agrupado = df.groupby(payload.dimensoes)[payload.metricas].sum().reset_index()
+        else:
+            # Se não tem dimensão, retorna o total geral
+            df_agrupado = df[payload.metricas].sum().to_frame().T
+
+        # 6. Formata o retorno
+        # Arredonda as casas decimais para 2
+        df_agrupado = df_agrupado.round(2)
+        
+        # Ordena do maior para o menor com base na primeira métrica (útil para gráficos)
+        if payload.dimensoes and payload.metricas:
+            df_agrupado = df_agrupado.sort_values(by=payload.metricas[0], ascending=False)
+
+        # Converte de volta para dicionário (JSON)
+        resultado_final = df_agrupado.to_dict(orient="records")
+
+        return {
+            "ok": True,
+            "assunto": payload.assunto,
+            "linhas_processadas": len(df),
+            "data": resultado_final,
+            "ts": now_iso()
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro no processamento analítico: {str(e)}")
 
 @router.get("/health")
 def health():
@@ -343,3 +432,51 @@ async def get_distribuicao_grupos(data_de: str, data_ate: str):
         return {"ok": True, "data": pizza}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+# --- BLOCO 5: RANKING GERAL CONSOLIDADO POR CLIENTE ---
+
+@router.get("/analytics/ranking-geral-clientes")
+async def get_ranking_geral_clientes(data_de: str, data_ate: str):
+    """
+    Retorna o ranking dos clientes que mais compraram no período,
+    somando todas as compras de cada um (Consolidado).
+    """
+    try:
+        d_de = _escape_sql(data_de)
+        d_ate = _escape_sql(data_ate)
+        
+        # 1. Busca todos os itens faturados no período (SD2)
+        where = f" AND D2_EMISSAO BETWEEN '{d_de}' AND '{d_ate}' AND D_E_L_E_T_ <> '*' "
+        campos = ["D2_CLIENTE", "D2_TOTAL"]
+        raw_sd2 = await client.consbanco("SD2", campos, where)
+        vendas = _rows(raw_sd2)
+        
+        if not vendas:
+            return {"ok": True, "data": []}
+
+        # 2. Agrupamento e Soma por Código de Cliente
+        consolidado_codigos = {}
+        for v in vendas:
+            cli = v["D2_CLIENTE"]
+            valor = float(v.get("D2_TOTAL") or 0)
+            consolidado_codigos[cli] = consolidado_codigos.get(cli, 0.0) + valor
+
+        # 3. Busca Nomes dos Clientes para os códigos encontrados (SA1)
+        cods_unicos = "('" + "','".join(consolidado_codigos.keys()) + "')"
+        res_sa1 = await client.consbanco("SA1", ["A1_COD", "A1_NOME"], f" AND A1_COD IN {cods_unicos} AND D_E_L_E_T_ <> '*' ")
+        mapa_nomes = {c["A1_COD"]: c["A1_NOME"].strip() for c in _rows(res_sa1)}
+
+        # 4. Montagem da lista final e ordenação pelo valor total
+        ranking_final = []
+        for cod, total in consolidado_codigos.items():
+            ranking_final.append({
+                "cliente": mapa_nomes.get(cod, f"Cod: {cod}"),
+                "valor": round(total, 2)
+            })
+
+        # Ordena do maior para o menor faturamento
+        ranking_final = sorted(ranking_final, key=lambda x: x["valor"], reverse=True)
+
+        return {"ok": True, "data": ranking_final}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro no Ranking Geral: {str(e)}")
